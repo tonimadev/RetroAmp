@@ -1,0 +1,33 @@
+# Gradle artifacts
+.gradle/
+build/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.navigation/
+
+# Local properties
+local.properties
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Android-specific artifacts
+captures/
+.externalNativeBuild/
+.cxx/
+*.apks
+*.apk
+*.keystore
+*.jks
+
+# Agent-specific artifacts
+.artifacts/
+.agent/
+
+# Miscellaneous
+*.log

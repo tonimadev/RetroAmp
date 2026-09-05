@@ -1,16 +1,20 @@
 package digital.tonima.retroamp.player
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.audiofx.Visualizer
 import android.os.Bundle
 import androidx.annotation.OptIn
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -82,18 +86,30 @@ class PlayerManager(val context: Context) {
         }
     }
 
+    fun refreshVisualizer() {
+        if (controller?.isPlaying == true) {
+            stopVisualizer()
+            requestAudioSessionIdAndStartVisualizer()
+        }
+    }
+
     private fun requestAudioSessionIdAndStartVisualizer() {
         val player = controller ?: return
+        
+        // If already running, don't restart unless requested
+        if (visualizer != null && visualizer?.enabled == true) return
+
         val command = SessionCommand(PlaybackService.CUSTOM_COMMAND_GET_AUDIO_SESSION_ID, Bundle.EMPTY)
         val future = player.sendCustomCommand(command, Bundle.EMPTY)
         future.addListener({
             try {
                 val result = future.get()
-                if (result.resultCode == 0) { // RESULT_SUCCESS
+                if (result.resultCode == SessionResult.RESULT_SUCCESS) {
                     val audioSessionId = result.extras.getInt("audio_session_id", 0)
-                    if (audioSessionId != 0) {
-                        startVisualizer(audioSessionId)
-                    }
+                    // Some devices might report 0 for a moment, or we might need to fallback to 0 (system mix)
+                    // but usually 0 doesn't work well on modern Android for app audio without special permissions.
+                    // We'll try to start it with whatever we get, but startVisualizer will check for 0.
+                    startVisualizer(audioSessionId)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -102,8 +118,16 @@ class PlayerManager(val context: Context) {
     }
 
     private fun startVisualizer(audioSessionId: Int) {
-        if (visualizer != null || audioSessionId == 0) return
+        if (visualizer != null) return
+        
+        // Ensure RECORD_AUDIO permission is granted
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return
+        }
+
         try {
+            // If audioSessionId is 0, it might capture system output (needs permission) 
+            // but we try anyway as a last resort if it's all we have.
             visualizer = Visualizer(audioSessionId).apply {
                 captureSize = Visualizer.getCaptureSizeRange()[1]
                 setDataCaptureListener(object : Visualizer.OnDataCaptureListener {
@@ -111,20 +135,29 @@ class PlayerManager(val context: Context) {
                         waveform?.let {
                             var sum = 0f
                             for (i in it.indices) {
+                                // Waveform is unsigned 8-bit, 128 is center
                                 val sample = (it[i].toInt() and 0xFF) - 128
                                 sum += (sample * sample).toFloat()
                             }
                             val rms = Math.sqrt((sum / it.size).toDouble()).toFloat()
-                            _amplitude.value = (rms / 128f).coerceIn(0f, 1f)
+                            
+                            // More aggressive scaling for better reactivity
+                            // RMS typically 0-127. 32-64 is common for music.
+                            val normalized = (rms / 64f).coerceIn(0f, 1f)
+                            
+                            // Boost and non-linear response for "pop"
+                            val boosted = (normalized * 1.8f).coerceIn(0f, 1f)
+                            _amplitude.value = boosted
                         }
                     }
 
                     override fun onFftDataCapture(v: Visualizer?, fft: ByteArray?, samplingRate: Int) {}
-                }, Visualizer.getMaxCaptureRate() / 2, true, false)
+                }, Visualizer.getMaxCaptureRate(), true, false)
                 enabled = true
             }
         } catch (e: Exception) {
             e.printStackTrace()
+            visualizer = null
         }
     }
 
@@ -148,6 +181,11 @@ class PlayerManager(val context: Context) {
                         .setAlbumTitle(track.album)
                         .setDurationMs(track.durationMs)
                         .setArtworkUri(track.coverArtUrl)
+                        .apply {
+                            if (track.coverArtData != null) {
+                                setArtworkData(track.coverArtData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                            }
+                        }
                         .build()
                 )
                 .build()
@@ -169,6 +207,11 @@ class PlayerManager(val context: Context) {
                         .setAlbumTitle(track.album)
                         .setDurationMs(track.durationMs)
                         .setArtworkUri(track.coverArtUrl)
+                        .apply {
+                            if (track.coverArtData != null) {
+                                setArtworkData(track.coverArtData, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                            }
+                        }
                         .build()
                 )
                 .build()
@@ -242,6 +285,10 @@ class PlayerManager(val context: Context) {
     fun getVolume(): Float = controller?.volume ?: 1.0f
 
     fun getCurrentPosition(): Long = controller?.currentPosition ?: 0L
+
+    fun getMediaItemCount(): Int = controller?.mediaItemCount ?: 0
+
+    fun getCurrentTrackIndex(): Int = controller?.currentMediaItemIndex ?: -1
 
     fun release() {
         stopVisualizer()

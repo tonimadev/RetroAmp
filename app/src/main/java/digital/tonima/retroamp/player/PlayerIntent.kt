@@ -15,5 +15,8 @@ sealed interface PlayerIntent {
     data class SeekTo(val positionMs: Long) : PlayerIntent
     data class SetVolume(val volume: Float) : PlayerIntent
     data class ShowMessage(val message: String) : PlayerIntent
+    data object ToggleVisualizer : PlayerIntent
+    data object ToggleVisualizerFullScreen : PlayerIntent
     data object ConsumeEffect : PlayerIntent
+    data object RefreshVisualizer : PlayerIntent
 }

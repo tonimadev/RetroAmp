@@ -10,8 +10,14 @@ data class PlayerUiState(
     val currentTrack: Track? = null,
     val isPlaying: Boolean = false,
     val playlist: ImmutableList<Track> = persistentListOf(),
-    val currentPositionMs: Long = 0L,
     val volume: Float = 1f,
     val effect: PlayerEffect? = null,
-    val amplitude: Float = 0f
+    val visualizerMode: Int = 0,
+    val isVisualizerFullScreen: Boolean = false
+)
+
+@Immutable
+data class PlaybackProgressState(
+    val currentPositionMs: Long = 0L,
+    val durationMs: Long = 0L
 )

@@ -30,6 +30,21 @@ RetroAmp is built using the **MVI (Model-View-Intent)** architectural pattern to
 - **Effects**: Side effects (like showing a Toast or navigating) that happen once and aren't part of the persistent UI state.
 - **ViewModel**: The central hub that processes Intents, updates the UiState, and manages communication with the Media3 controller and Room database.
 
+## AGSL Shaders & Visualizers
+
+RetroAmp leverages the power of modern Android graphics to create a highly responsive and visually stunning experience.
+
+- **Language**: The project uses **Android Graphics Shading Language (AGSL)** for high-performance GPU rendering, allowing for complex per-pixel calculations.
+- **Shader Management**: Shaders are stored as string constants in `Shaders.kt` for easy access and organization.
+- **Implementation**: It uses Compose's `RuntimeShader` and `ShaderBrush` integrated via `drawBehind` or `Canvas` to apply the graphics directly to the UI layer.
+- **Reactivity**: Shaders receive real-time uniforms to stay in sync with the audio:
+    - `uTime`: For continuous animation and movement within the shader.
+    - `uAmplitude`: Mapped to audio intensity (bass-boosted and smoothed) to drive distortion, frequency shifts, and color transitions.
+- **Interactions**:
+    - **Single Click**: Toggle between different visualizer modes (e.g., Psychedelic Waves, Audio Tunnel).
+    - **Long Click**: Enter/Exit Full-Screen visualizer mode for an immersive experience.
+- **Performance**: Rendering happens entirely on the GPU, ensuring a smooth 60/120 FPS experience without taxing the UI thread or blocking main thread execution.
+
 ## How to Use
 
 1. **Add Music**: Tap the "Eject" or "Add" button to open the Storage Access Framework (SAF) and select your MP3 files.

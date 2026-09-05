@@ -13,7 +13,8 @@ data class TrackEntity(
     val album: String?,
     val durationMs: Long,
     val audioUrl: Uri,
-    val coverArtUrl: Uri?
+    val coverArtUrl: Uri?,
+    val coverArtData: ByteArray?
 )
 
 fun TrackEntity.asExternalModel() = Track(
@@ -23,7 +24,8 @@ fun TrackEntity.asExternalModel() = Track(
     album = album,
     durationMs = durationMs,
     audioUrl = audioUrl,
-    coverArtUrl = coverArtUrl
+    coverArtUrl = coverArtUrl,
+    coverArtData = coverArtData
 )
 
 fun Track.asEntity() = TrackEntity(
@@ -33,5 +35,6 @@ fun Track.asEntity() = TrackEntity(
     album = album,
     durationMs = durationMs,
     audioUrl = audioUrl,
-    coverArtUrl = coverArtUrl
+    coverArtUrl = coverArtUrl,
+    coverArtData = coverArtData
 )

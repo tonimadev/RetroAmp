@@ -7,31 +7,37 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.core.app.ActivityCompat
-import androidx.room.Room
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.activity.viewModels
 import digital.tonima.retroamp.core.database.RetroAmpDatabase
 import digital.tonima.retroamp.core.repository.PlaylistRepository
 import digital.tonima.retroamp.player.PlayerManager
+import digital.tonima.retroamp.player.PlayerIntent
 import digital.tonima.retroamp.player.PlayerViewModel
+import digital.tonima.retroamp.player.PlayerViewModelFactory
 import digital.tonima.retroamp.player.ui.PlayerScreen
 import digital.tonima.retroamp.ui.theme.RetroAmpTheme
 
 class MainActivity : ComponentActivity() {
     
-    private lateinit var playerManager: PlayerManager
-    private lateinit var viewModel: PlayerViewModel
-    private lateinit var database: RetroAmpDatabase
+    private val viewModel: PlayerViewModel by viewModels {
+        val database = RetroAmpDatabase.getDatabase(applicationContext)
+        val repository = PlaylistRepository(database.trackDao())
+        val playerManager = PlayerManager(applicationContext)
+        PlayerViewModelFactory(playerManager, repository)
+    }
+
+    private val requestPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.RECORD_AUDIO] == true) {
+            viewModel.onIntent(PlayerIntent.RefreshVisualizer)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        database = Room.databaseBuilder(
-            applicationContext,
-            RetroAmpDatabase::class.java,
-            "retroamp.db"
-        ).build()
-
-        val repository = PlaylistRepository(database.trackDao())
         
         val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -39,15 +45,12 @@ class MainActivity : ComponentActivity() {
         }
 
         val permissionsToRequest = permissions.filter {
-            ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
         if (permissionsToRequest.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, permissionsToRequest.toTypedArray(), 0)
+            requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
         }
-
-        playerManager = PlayerManager(this)
-        viewModel = PlayerViewModel(playerManager, repository)
 
         enableEdgeToEdge()
         setContent {

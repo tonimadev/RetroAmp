@@ -122,7 +122,7 @@ fun TrackItem(
         verticalAlignment = Alignment.CenterVertically
     ) {
         AsyncImage(
-            model = track.coverArtUrl,
+            model = track.coverArtData ?: track.coverArtUrl,
             contentDescription = null,
             placeholder = painterResource(R.drawable.placeholder),
             error = painterResource(R.drawable.placeholder),

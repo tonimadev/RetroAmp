@@ -2,10 +2,12 @@ package digital.tonima.retroamp.player.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import digital.tonima.retroamp.core.model.Track
 import digital.tonima.retroamp.core.ui.LaunchedUiEffectHandler
 import digital.tonima.retroamp.player.PlayerEffect
@@ -54,7 +57,7 @@ import digital.tonima.retroamp.ui.theme.RetroAmpTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import androidx.core.net.toUri
+import kotlin.time.Duration.Companion.milliseconds
 
 @Composable
 fun PlayerScreen(
@@ -62,10 +65,28 @@ fun PlayerScreen(
     modifier: Modifier = Modifier
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val amplitudeState = viewModel.amplitude.collectAsState()
+    val positionState = viewModel.currentPositionMs.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val effectFlow = remember(viewModel) { viewModel.uiState.map { it.effect } }
     
+    val context = LocalContext.current
+    
+    val visualizerPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.onIntent(PlayerIntent.RefreshVisualizer)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            visualizerPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
     val pickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -104,7 +125,6 @@ fun PlayerScreen(
         }
     )
 
-    val context = LocalContext.current
     val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Manifest.permission.READ_MEDIA_AUDIO
     } else {
@@ -113,6 +133,8 @@ fun PlayerScreen(
 
     PlayerContent(
         uiState = uiState,
+        amplitudeProvider = { amplitudeState.value },
+        positionProvider = { positionState.value },
         onIntent = viewModel::onIntent,
         onAddClick = {
             if (ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED) {
@@ -124,11 +146,28 @@ fun PlayerScreen(
         snackbarHostState = snackbarHostState,
         modifier = modifier
     )
+
+    // Full Screen Visualizer Overlay
+    AnimatedVisibility(
+        visible = uiState.isVisualizerFullScreen,
+        enter = fadeIn(),
+        exit = fadeOut()
+    ) {
+        RetroVisualizer(
+            amplitudeProvider = { amplitudeState.value },
+            mode = uiState.visualizerMode,
+            onToggleMode = { viewModel.onIntent(PlayerIntent.ToggleVisualizer) },
+            onToggleFullScreen = { viewModel.onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
+            modifier = Modifier.fillMaxSize().background(Color.Black)
+        )
+    }
 }
 
 @Composable
 fun PlayerContent(
     uiState: PlayerUiState,
+    amplitudeProvider: () -> Float,
+    positionProvider: () -> Long,
     onIntent: (PlayerIntent) -> Unit,
     onAddClick: () -> Unit,
     snackbarHostState: SnackbarHostState,
@@ -169,13 +208,8 @@ fun PlayerContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val minutes = (uiState.currentPositionMs / 1000) / 60
-                val seconds = (uiState.currentPositionMs / 1000) % 60
-                val timeText = "%02d:%02d".format(minutes, seconds)
-
-                SegmentedDisplay(
-                    text = timeText,
-                    label = "TIME",
+                PlaybackTimeDisplay(
+                    positionProvider = positionProvider,
                     modifier = Modifier.weight(1f)
                 )
                 
@@ -213,17 +247,10 @@ fun PlayerContent(
             }
 
             // Progress Slider
-            val progress = if (uiState.currentTrack != null && uiState.currentTrack.durationMs > 0) {
-                uiState.currentPositionMs.toFloat() / uiState.currentTrack.durationMs
-            } else 0f
-
-            RetroSlider(
-                value = progress.coerceIn(0f, 1f),
-                onValueChange = { newValue ->
-                    uiState.currentTrack?.let { track ->
-                        onIntent(PlayerIntent.SeekTo((newValue * track.durationMs).toLong()))
-                    }
-                },
+            PlaybackProgressSlider(
+                positionProvider = positionProvider,
+                durationMs = uiState.currentTrack?.durationMs ?: 0L,
+                onSeek = { position -> onIntent(PlayerIntent.SeekTo(position)) },
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -282,7 +309,10 @@ fun PlayerContent(
             
             // Visualizer
             RetroVisualizer(
-                amplitude = uiState.amplitude,
+                amplitudeProvider = amplitudeProvider,
+                mode = uiState.visualizerMode,
+                onToggleMode = { onIntent(PlayerIntent.ToggleVisualizer) },
+                onToggleFullScreen = { onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(80.dp)
@@ -291,6 +321,42 @@ fun PlayerContent(
             )
         }
     }
+}
+
+@Composable
+private fun PlaybackTimeDisplay(
+    positionProvider: () -> Long,
+    modifier: Modifier = Modifier
+) {
+    val position = positionProvider()
+    val minutes = (position / 1000) / 60
+    val seconds = (position / 1000) % 60
+    val timeText = "%02d:%02d".format(minutes, seconds)
+
+    SegmentedDisplay(
+        text = timeText,
+        label = "TIME",
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun PlaybackProgressSlider(
+    positionProvider: () -> Long,
+    durationMs: Long,
+    onSeek: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val position = positionProvider()
+    val progress = if (durationMs > 0) position.toFloat() / durationMs else 0f
+
+    RetroSlider(
+        value = progress.coerceIn(0f, 1f),
+        onValueChange = { newValue ->
+            onSeek((newValue * durationMs).toLong())
+        },
+        modifier = modifier
+    )
 }
 
 @Preview(showBackground = true, device = "spec:width=411dp,height=891dp")
@@ -309,6 +375,8 @@ fun PlayerPreview() {
                 ),
                 isPlaying = true
             ),
+            amplitudeProvider = { 0.5f },
+            positionProvider = { 2500L },
             onIntent = {},
             onAddClick = {},
             snackbarHostState = remember { SnackbarHostState() }

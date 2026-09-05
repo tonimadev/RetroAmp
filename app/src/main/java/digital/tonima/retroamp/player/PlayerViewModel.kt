@@ -4,6 +4,7 @@ import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import digital.tonima.retroamp.core.model.Track
 import digital.tonima.retroamp.core.repository.PlaylistRepository
@@ -16,6 +17,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration.Companion.milliseconds
 
 class PlayerViewModel(
@@ -26,6 +29,17 @@ class PlayerViewModel(
     private val _uiState = MutableStateFlow(PlayerUiState())
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
+    private val _currentPositionMs = MutableStateFlow(0L)
+    val currentPositionMs = _currentPositionMs.asStateFlow()
+
+    private val _amplitude = MutableStateFlow(0f)
+    val amplitude = _amplitude.asStateFlow()
+
+    private val playlistMutex = Mutex()
+
+    private var smoothedAmplitude = 0f
+    private val smoothingFactor = 0.3f // For decay speed
+
     init {
         _uiState.update { it.copy(volume = playerManager.getVolume()) }
 
@@ -35,16 +49,29 @@ class PlayerViewModel(
                     _uiState.update { it.copy(volume = playerManager.getVolume()) }
                     
                     // Initial load from repository
-                    if (_uiState.value.playlist.isEmpty()) {
-                        val savedPlaylist = playlistRepository.getPlaylist().first()
-                        if (savedPlaylist.isNotEmpty()) {
-                            _uiState.update { state ->
-                                state.copy(
-                                    playlist = savedPlaylist.toImmutableList(),
-                                    currentTrack = savedPlaylist.firstOrNull()
-                                )
+                    playlistMutex.withLock {
+                        if (_uiState.value.playlist.isEmpty()) {
+                            val savedPlaylist = playlistRepository.getPlaylist().first().distinctBy { it.id }
+                            val hasPlayerItems = playerManager.getMediaItemCount() > 0
+
+                            if (savedPlaylist.isNotEmpty()) {
+                                _uiState.update { state ->
+                                    val currentIndex = playerManager.getCurrentTrackIndex()
+                                    state.copy(
+                                        playlist = savedPlaylist.toImmutableList(),
+                                        currentTrack = if (currentIndex in savedPlaylist.indices) {
+                                            savedPlaylist[currentIndex]
+                                        } else {
+                                            savedPlaylist.firstOrNull()
+                                        }
+                                    )
+                                }
+                                
+                                // Only set playlist if player is empty
+                                if (!hasPlayerItems) {
+                                    playerManager.setPlaylist(savedPlaylist)
+                                }
                             }
-                            playerManager.setPlaylist(savedPlaylist)
                         }
                     }
                 }
@@ -67,8 +94,14 @@ class PlayerViewModel(
         }
 
         viewModelScope.launch {
-            playerManager.amplitude.collect { amplitude ->
-                _uiState.update { it.copy(amplitude = amplitude) }
+            playerManager.amplitude.collect { rawAmplitude ->
+                // Envelope follower: Instant attack, smoothed decay
+                if (rawAmplitude > smoothedAmplitude) {
+                    smoothedAmplitude = rawAmplitude
+                } else {
+                    smoothedAmplitude = smoothedAmplitude + smoothingFactor * (rawAmplitude - smoothedAmplitude)
+                }
+                _amplitude.value = smoothedAmplitude
             }
         }
 
@@ -76,7 +109,7 @@ class PlayerViewModel(
             while (isActive) {
                 if (_uiState.value.isPlaying) {
                     val position = playerManager.getCurrentPosition()
-                    _uiState.update { it.copy(currentPositionMs = position) }
+                    _currentPositionMs.value = position
                 }
                 delay(500.milliseconds)
             }
@@ -111,43 +144,54 @@ class PlayerViewModel(
                 playerManager.setVolume(intent.volume)
                 _uiState.update { it.copy(volume = intent.volume) }
             }
+            PlayerIntent.ToggleVisualizer -> {
+                _uiState.update { it.copy(visualizerMode = (it.visualizerMode + 1) % 2) }
+            }
+            PlayerIntent.ToggleVisualizerFullScreen -> {
+                _uiState.update { it.copy(isVisualizerFullScreen = !it.isVisualizerFullScreen) }
+            }
             is PlayerIntent.ShowMessage -> _uiState.update { it.copy(effect = PlayerEffect.ShowMessage(intent.message)) }
             PlayerIntent.ConsumeEffect -> _uiState.update { it.copy(effect = null) }
+            PlayerIntent.RefreshVisualizer -> playerManager.refreshVisualizer()
         }
     }
 
     private fun handleRemoveTrack(trackId: String) {
-        val currentPlaylist = _uiState.value.playlist
-        val index = currentPlaylist.indexOfFirst { it.id == trackId }
-        if (index != -1) {
-            val newList = currentPlaylist.toMutableList().apply { removeAt(index) }.toImmutableList()
-            _uiState.update { state ->
-                state.copy(
-                    playlist = newList,
-                    currentTrack = if (state.currentTrack?.id == trackId) {
-                        if (newList.isNotEmpty()) newList[index.coerceAtMost(newList.size - 1)] else null
-                    } else state.currentTrack
-                )
-            }
-            playerManager.removeTrack(index)
-            viewModelScope.launch {
-                playlistRepository.clearPlaylist()
-                playlistRepository.saveTracks(newList)
+        viewModelScope.launch {
+            playlistMutex.withLock {
+                val currentPlaylist = _uiState.value.playlist
+                val index = currentPlaylist.indexOfFirst { it.id == trackId }
+                if (index != -1) {
+                    val newList = currentPlaylist.toMutableList().apply { removeAt(index) }.toImmutableList()
+                    _uiState.update { state ->
+                        state.copy(
+                            playlist = newList,
+                            currentTrack = if (state.currentTrack?.id == trackId) {
+                                if (newList.isNotEmpty()) newList[index.coerceAtMost(newList.size - 1)] else null
+                            } else state.currentTrack
+                        )
+                    }
+                    playerManager.removeTrack(index)
+                    playlistRepository.clearPlaylist()
+                    playlistRepository.saveTracks(newList)
+                }
             }
         }
     }
 
     private fun handleClearPlaylist() {
-        _uiState.update { it.copy(playlist = listOf<Track>().toImmutableList(), currentTrack = null) }
-        playerManager.clearPlaylist()
         viewModelScope.launch {
-            playlistRepository.clearPlaylist()
+            playlistMutex.withLock {
+                _uiState.update { it.copy(playlist = listOf<Track>().toImmutableList(), currentTrack = null) }
+                playerManager.clearPlaylist()
+                playlistRepository.clearPlaylist()
+            }
         }
     }
 
     private fun handleAddTracks(uris: List<Uri>) {
         viewModelScope.launch {
-            val newTracks = uris.map { uri ->
+            val incomingTracks = uris.map { uri ->
                 // Try to persist permission for the URI
                 try {
                     playerManager.context.contentResolver.takePersistableUriPermission(
@@ -158,23 +202,34 @@ class PlayerViewModel(
                     // Not a persistable URI or permission already granted
                 }
                 extractMetadata(uri)
-            }
-            
-            if (newTracks.isNotEmpty()) {
-                val currentPlaylist = _uiState.value.playlist.toMutableList()
-                currentPlaylist.addAll(newTracks)
-                
-                val updatedPlaylist = currentPlaylist.toImmutableList()
-                _uiState.update { state ->
-                    state.copy(
-                        playlist = updatedPlaylist,
-                        currentTrack = state.currentTrack ?: newTracks.firstOrNull()
-                    )
-                }
-                playerManager.addTracks(newTracks)
-                playlistRepository.saveTracks(updatedPlaylist)
-            } else {
+            }.distinctBy { it.id } // Ensure incoming tracks are unique by ID
+
+            if (incomingTracks.isEmpty()) {
                 _uiState.update { it.copy(effect = PlayerEffect.ShowMessage("No valid audio files found")) }
+                return@launch
+            }
+
+            playlistMutex.withLock {
+                val currentPlaylist = _uiState.value.playlist
+                val currentIds = currentPlaylist.map { it.id }.toSet()
+
+                val newTracksToAdd = incomingTracks.filter { it.id !in currentIds }
+                val hadDuplicates = incomingTracks.size < uris.distinctBy { it.toString() }.size || incomingTracks.size > newTracksToAdd.size
+
+                if (newTracksToAdd.isNotEmpty()) {
+                    val updatedPlaylist = (currentPlaylist + newTracksToAdd).toImmutableList()
+                    _uiState.update { state ->
+                        state.copy(
+                            playlist = updatedPlaylist,
+                            currentTrack = state.currentTrack ?: newTracksToAdd.firstOrNull(),
+                            effect = if (hadDuplicates) PlayerEffect.ShowMessage("Some tracks are already in the playlist") else state.effect
+                        )
+                    }
+                    playerManager.addTracks(newTracksToAdd)
+                    playlistRepository.saveTracks(updatedPlaylist)
+                } else if (hadDuplicates) {
+                    _uiState.update { it.copy(effect = PlayerEffect.ShowMessage("Some tracks are already in the playlist")) }
+                }
             }
         }
     }
@@ -187,6 +242,7 @@ class PlayerViewModel(
             val artist = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST)
             val album = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM)
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLong() ?: 0L
+            val coverArtData = retriever.embeddedPicture
             
             Track(
                 id = uri.toString(),
@@ -195,7 +251,8 @@ class PlayerViewModel(
                 album = album,
                 durationMs = duration,
                 audioUrl = uri,
-                coverArtUrl = null
+                coverArtUrl = null,
+                coverArtData = coverArtData
             )
         } catch (_: Exception) {
             Track(
@@ -204,7 +261,8 @@ class PlayerViewModel(
                 artist = "Unknown Artist",
                 durationMs = 0L,
                 audioUrl = uri,
-                coverArtUrl = null
+                coverArtUrl = null,
+                coverArtData = null
             )
         } finally {
             retriever.release()
@@ -212,14 +270,34 @@ class PlayerViewModel(
     }
     
     fun setPlaylist(tracks: List<Track>) {
-        _uiState.update { it.copy(
-            playlist = tracks.toImmutableList(),
-            currentTrack = if (tracks.isNotEmpty() && it.currentTrack == null) tracks[0] else it.currentTrack
-        ) }
-        playerManager.setPlaylist(tracks)
+        viewModelScope.launch {
+            playlistMutex.withLock {
+                val distinctTracks = tracks.distinctBy { it.id }
+                _uiState.update {
+                    it.copy(
+                        playlist = distinctTracks.toImmutableList(),
+                        currentTrack = if (distinctTracks.isNotEmpty() && it.currentTrack == null) distinctTracks[0] else it.currentTrack
+                    )
+                }
+                playerManager.setPlaylist(distinctTracks)
+            }
+        }
     }
 
     override fun onCleared() {
         playerManager.release()
+    }
+}
+
+class PlayerViewModelFactory(
+    private val playerManager: PlayerManager,
+    private val playlistRepository: PlaylistRepository
+) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(PlayerViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return PlayerViewModel(playerManager, playlistRepository) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }

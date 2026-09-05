@@ -11,7 +11,7 @@ interface TrackDao {
     @Query("SELECT * FROM tracks")
     fun getAllTracks(): Flow<List<TrackEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(tracks: List<TrackEntity>)
 
     @Query("DELETE FROM tracks")

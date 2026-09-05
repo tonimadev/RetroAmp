@@ -21,7 +21,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import digital.tonima.retroamp.ui.theme.AppSkin
 import kotlin.math.sin
 
 @Composable
@@ -30,12 +32,13 @@ fun RetroVisualizer(
     mode: Int,
     onToggleMode: () -> Unit,
     onToggleFullScreen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    skin: AppSkin = AppSkin.Winamp
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        AgslVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier)
+        AgslVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier, skin)
     } else {
-        FallbackVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier)
+        FallbackVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier, skin)
     }
 }
 
@@ -47,7 +50,8 @@ private fun AgslVisualizer(
     mode: Int,
     onToggleMode: () -> Unit,
     onToggleFullScreen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    skin: AppSkin = AppSkin.Winamp
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "visualizerTime")
     val timeState = infiniteTransition.animateFloat(
@@ -75,10 +79,19 @@ private fun AgslVisualizer(
             )
             .drawWithCache {
                 val brush = ShaderBrush(shader)
+                val color1 = skin.visualizerColors.getOrElse(0) { Color.Green }
+                val color2 = skin.visualizerColors.getOrElse(1) { color1 }
+                val color3 = skin.visualizerColors.getOrElse(2) { color2 }
+                
                 onDrawBehind {
                     shader.setFloatUniform("uTime", timeState.value)
                     shader.setFloatUniform("uAmplitude", amplitudeProvider())
                     shader.setFloatUniform("uResolution", size.width, size.height)
+                    
+                    shader.setColorUniform("uColor1", color1.toArgb())
+                    shader.setColorUniform("uColor2", color2.toArgb())
+                    shader.setColorUniform("uColor3", color3.toArgb())
+                    
                     drawRect(brush)
                 }
             }
@@ -94,7 +107,8 @@ private fun FallbackVisualizer(
     mode: Int,
     onToggleMode: () -> Unit,
     onToggleFullScreen: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    skin: AppSkin = AppSkin.Winamp
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "visualizerTime")
     val time by infiniteTransition.animateFloat(
@@ -119,12 +133,13 @@ private fun FallbackVisualizer(
         val spacing = 4.dp.toPx()
         val barWidth = (size.width - (barCount - 1) * spacing) / barCount
         
-        val barColor = when (mode) {
-            0 -> Color.Green
-            else -> Color.Cyan
+        val barColor = if (mode < skin.visualizerColors.size) {
+            skin.visualizerColors[mode]
+        } else {
+            skin.visualizerColors.firstOrNull() ?: Color.Green
         }
 
-        val timeOffset = (time * 2.0 * Math.PI) // Calculado 1x por frame
+        val timeOffset = (time * 2.0 * Math.PI)
         for (i in 0 until barCount) {
             val variation = 0.7f + 0.3f * sin(timeOffset + i).toFloat()
             val currentAmplitude = amplitudeProvider() // Leitura deferida

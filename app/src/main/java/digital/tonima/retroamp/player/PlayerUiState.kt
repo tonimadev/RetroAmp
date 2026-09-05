@@ -2,6 +2,7 @@ package digital.tonima.retroamp.player
 
 import androidx.compose.runtime.Immutable
 import digital.tonima.retroamp.core.model.Track
+import digital.tonima.retroamp.ui.theme.AppSkin
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -13,7 +14,8 @@ data class PlayerUiState(
     val volume: Float = 1f,
     val effect: PlayerEffect? = null,
     val visualizerMode: Int = 0,
-    val isVisualizerFullScreen: Boolean = false
+    val isVisualizerFullScreen: Boolean = false,
+    val currentSkin: AppSkin = AppSkin.Winamp
 )
 
 @Immutable

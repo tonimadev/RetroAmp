@@ -1,6 +1,7 @@
 package digital.tonima.retroamp.player
 
 import android.net.Uri
+import digital.tonima.retroamp.ui.theme.AppSkin
 
 sealed interface PlayerIntent {
     data object Play : PlayerIntent
@@ -19,4 +20,5 @@ sealed interface PlayerIntent {
     data object ToggleVisualizerFullScreen : PlayerIntent
     data object ConsumeEffect : PlayerIntent
     data object RefreshVisualizer : PlayerIntent
+    data class SwitchSkin(val skin: AppSkin) : PlayerIntent
 }

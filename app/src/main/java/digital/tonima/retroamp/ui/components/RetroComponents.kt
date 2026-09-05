@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -18,40 +18,60 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import digital.tonima.retroamp.R
 import digital.tonima.retroamp.core.model.Track
+import digital.tonima.retroamp.ui.theme.AppSkin
 
 @Composable
 fun RetroButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    skin: AppSkin = AppSkin.Winamp
 ) {
+    val buttonText = if (skin.forceAllCaps) text.uppercase() else text
+    val isEightBit = skin == AppSkin.EightBit
+    
     Box(
         modifier = modifier
+            .padding(if (isEightBit) 2.dp else 0.dp) // Space for shadow
+            .background(
+                if (isEightBit) skin.textColor.copy(alpha = 0.5f) else Color.Transparent,
+                skin.buttonShape
+            ) // Blocky shadow for 8-bit
+            .padding(bottom = if (isEightBit) 2.dp else 0.dp, end = if (isEightBit) 2.dp else 0.dp)
             .size(width = 60.dp, height = 30.dp)
-            .border(2.dp, MaterialTheme.colorScheme.onSurface, RectangleShape)
-            .background(if (enabled) MaterialTheme.colorScheme.primary else Color.Gray)
+            .border(if (isEightBit) 3.dp else 2.dp, skin.textColor, skin.buttonShape)
+            .background(if (enabled) skin.primaryColor else Color.Gray)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(2.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onPrimary,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace
-        )
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = skin.backgroundColor,
+                modifier = Modifier.size(if (isEightBit) 18.dp else 20.dp)
+            )
+        } else {
+            Text(
+                text = buttonText,
+                color = skin.backgroundColor,
+                fontSize = if (isEightBit) 10.sp else 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = skin.fontFamily
+            )
+        }
     }
 }
 
@@ -59,29 +79,33 @@ fun RetroButton(
 fun SegmentedDisplay(
     text: String,
     modifier: Modifier = Modifier,
-    label: String? = null
+    label: String? = null,
+    skin: AppSkin = AppSkin.Winamp
 ) {
+    val displayText = if (skin.forceAllCaps) text.uppercase() else text
+    val displayLabel = if (skin.forceAllCaps) label?.uppercase() else label
+    
     Box(
         modifier = modifier
             .background(Color.Black)
-            .border(1.dp, MaterialTheme.colorScheme.onSurface)
+            .border(1.dp, skin.textColor)
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
-            if (label != null) {
+            if (displayLabel != null) {
                 Text(
-                    text = label,
-                    color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f),
+                    text = displayLabel,
+                    color = skin.accentColor.copy(alpha = 0.7f),
                     fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = skin.fontFamily,
                     modifier = Modifier.padding(end = 4.dp)
                 )
             }
             Text(
-                text = text,
-                color = MaterialTheme.colorScheme.tertiary,
+                text = displayText,
+                color = skin.accentColor,
                 fontSize = 20.sp,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = skin.fontFamily,
                 fontWeight = FontWeight.Bold
             )
         }
@@ -92,16 +116,17 @@ fun SegmentedDisplay(
 fun RetroSlider(
     value: Float,
     onValueChange: (Float) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    skin: AppSkin = AppSkin.Winamp
 ) {
     Slider(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
         colors = SliderDefaults.colors(
-            thumbColor = MaterialTheme.colorScheme.primary,
-            activeTrackColor = MaterialTheme.colorScheme.secondary,
-            inactiveTrackColor = MaterialTheme.colorScheme.surface
+            thumbColor = skin.primaryColor,
+            activeTrackColor = skin.secondaryColor,
+            inactiveTrackColor = skin.surfaceColor
         )
     )
 }
@@ -111,12 +136,15 @@ fun TrackItem(
     track: Track,
     isSelected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    skin: AppSkin = AppSkin.Winamp
 ) {
+    val titleText = if (skin.forceAllCaps) "${track.title} - ${track.artist}".uppercase() else "${track.title} - ${track.artist}"
+    
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(if (isSelected) MaterialTheme.colorScheme.secondary.copy(alpha = 0.3f) else Color.Transparent)
+            .background(if (isSelected) skin.secondaryColor.copy(alpha = 0.3f) else Color.Transparent)
             .clickable(onClick = onClick)
             .padding(8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -129,16 +157,16 @@ fun TrackItem(
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(40.dp)
-                .border(1.dp, MaterialTheme.colorScheme.onSurface)
+                .border(1.dp, skin.textColor)
         )
         
         Spacer(modifier = Modifier.width(8.dp))
 
         Text(
-            text = "${track.title} - ${track.artist}",
-            color = if (isSelected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+            text = titleText,
+            color = if (isSelected) skin.accentColor else skin.textColor,
             fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = skin.fontFamily,
             maxLines = 1,
             modifier = Modifier.weight(1f)
         )
@@ -147,9 +175,9 @@ fun TrackItem(
 
         Text(
             text = formatDuration(track.durationMs),
-            color = if (isSelected) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface,
+            color = if (isSelected) skin.accentColor else skin.textColor,
             fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = skin.fontFamily,
         )
     }
 }

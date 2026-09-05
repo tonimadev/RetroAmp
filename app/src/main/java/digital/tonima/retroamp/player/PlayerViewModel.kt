@@ -4,10 +4,11 @@ import android.content.Intent
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
 import digital.tonima.retroamp.core.model.Track
 import digital.tonima.retroamp.core.repository.PlaylistRepository
+import javax.inject.Inject
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration.Companion.milliseconds
 
-class PlayerViewModel(
+@HiltViewModel
+class PlayerViewModel @Inject constructor(
     private val playerManager: PlayerManager,
     private val playlistRepository: PlaylistRepository
 ) : ViewModel() {
@@ -153,6 +155,9 @@ class PlayerViewModel(
             is PlayerIntent.ShowMessage -> _uiState.update { it.copy(effect = PlayerEffect.ShowMessage(intent.message)) }
             PlayerIntent.ConsumeEffect -> _uiState.update { it.copy(effect = null) }
             PlayerIntent.RefreshVisualizer -> playerManager.refreshVisualizer()
+            is PlayerIntent.SwitchSkin -> {
+                _uiState.update { it.copy(currentSkin = intent.skin) }
+            }
         }
     }
 
@@ -213,11 +218,11 @@ class PlayerViewModel(
                 val currentPlaylist = _uiState.value.playlist
                 val currentIds = currentPlaylist.map { it.id }.toSet()
 
-                val newTracksToAdd = incomingTracks.filter { it.id !in currentIds }
+                val newTracksToAdd = incomingTracks.filter { it.id !in currentIds }.distinctBy { it.id }
                 val hadDuplicates = incomingTracks.size < uris.distinctBy { it.toString() }.size || incomingTracks.size > newTracksToAdd.size
 
                 if (newTracksToAdd.isNotEmpty()) {
-                    val updatedPlaylist = (currentPlaylist + newTracksToAdd).toImmutableList()
+                    val updatedPlaylist = (currentPlaylist + newTracksToAdd).distinctBy { it.id }.toImmutableList()
                     _uiState.update { state ->
                         state.copy(
                             playlist = updatedPlaylist,
@@ -286,18 +291,5 @@ class PlayerViewModel(
 
     override fun onCleared() {
         playerManager.release()
-    }
-}
-
-class PlayerViewModelFactory(
-    private val playerManager: PlayerManager,
-    private val playlistRepository: PlaylistRepository
-) : ViewModelProvider.Factory {
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        if (modelClass.isAssignableFrom(PlayerViewModel::class.java)) {
-            @Suppress("UNCHECKED_CAST")
-            return PlayerViewModel(playerManager, playlistRepository) as T
-        }
-        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }

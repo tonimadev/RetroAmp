@@ -20,7 +20,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -37,7 +44,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +59,7 @@ import digital.tonima.retroamp.ui.components.RetroButton
 import digital.tonima.retroamp.ui.components.RetroSlider
 import digital.tonima.retroamp.ui.components.SegmentedDisplay
 import digital.tonima.retroamp.ui.components.TrackItem
+import digital.tonima.retroamp.ui.theme.AppSkin
 import digital.tonima.retroamp.ui.theme.RetroAmpTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
@@ -158,7 +165,8 @@ fun PlayerScreen(
             mode = uiState.visualizerMode,
             onToggleMode = { viewModel.onIntent(PlayerIntent.ToggleVisualizer) },
             onToggleFullScreen = { viewModel.onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
-            modifier = Modifier.fillMaxSize().background(Color.Black)
+            skin = uiState.currentSkin,
+            modifier = Modifier.fillMaxSize().background(uiState.currentSkin.backgroundColor)
         )
     }
 }
@@ -173,10 +181,12 @@ fun PlayerContent(
     snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier
 ) {
+    val skin = uiState.currentSkin
+    
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier.fillMaxSize(),
-        containerColor = MaterialTheme.colorScheme.background
+        containerColor = skin.backgroundColor
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -191,14 +201,14 @@ fun PlayerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(24.dp)
-                    .background(MaterialTheme.colorScheme.secondary),
+                    .background(skin.secondaryColor),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Text(
-                    text = " RETRO-AMP - WINAMP.MP3",
+                    text = if (skin.forceAllCaps) " RETRO-AMP - ${skin.name}.MP3" else " RETRO-AMP - ${skin.name}.mp3",
                     color = Color.White,
                     fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = skin.fontFamily,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
             }
@@ -210,6 +220,7 @@ fun PlayerContent(
             ) {
                 PlaybackTimeDisplay(
                     positionProvider = positionProvider,
+                    skin = skin,
                     modifier = Modifier.weight(1f)
                 )
                 
@@ -226,22 +237,24 @@ fun PlayerContent(
                         }
                     }
 
-                    val trackText = uiState.currentTrack?.let { 
+                    val rawTrackText = uiState.currentTrack?.let { 
                         if (showTitle) it.title else it.artist 
                     } ?: "NO TRACK LOADED"
                     
+                    val trackText = if (skin.forceAllCaps) rawTrackText.uppercase() else rawTrackText
+                    
                     Text(
                         text = trackText,
-                        color = MaterialTheme.colorScheme.tertiary,
+                        color = skin.accentColor,
                         fontSize = 14.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = skin.fontFamily,
                         maxLines = 1
                     )
                     Text(
-                        text = "kbps: 128  khz: 44.1",
-                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f),
+                        text = if (skin.forceAllCaps) "KBPS: 128  KHZ: 44.1" else "kbps: 128  khz: 44.1",
+                        color = skin.accentColor.copy(alpha = 0.7f),
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = skin.fontFamily
                     )
                 }
             }
@@ -251,20 +264,66 @@ fun PlayerContent(
                 positionProvider = positionProvider,
                 durationMs = uiState.currentTrack?.durationMs ?: 0L,
                 onSeek = { position -> onIntent(PlayerIntent.SeekTo(position)) },
+                skin = skin,
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Controls
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                RetroButton(text = "PREV", onClick = { onIntent(PlayerIntent.SkipPrevious) })
-                RetroButton(text = "PLAY", onClick = { onIntent(PlayerIntent.Play) })
-                RetroButton(text = "PAUSE", onClick = { onIntent(PlayerIntent.Pause) })
-                RetroButton(text = "STOP", onClick = { onIntent(PlayerIntent.Stop) })
-                RetroButton(text = "NEXT", onClick = { onIntent(PlayerIntent.SkipNext) })
-                RetroButton(text = "ADD", onClick = onAddClick)
+                RetroButton(
+                    text = "PREV",
+                    icon = Icons.Filled.SkipPrevious,
+                    onClick = { onIntent(PlayerIntent.SkipPrevious) },
+                    skin = skin,
+                    modifier = Modifier.weight(1f)
+                )
+                RetroButton(
+                    text = "PLAY",
+                    icon = Icons.Filled.PlayArrow,
+                    onClick = { onIntent(PlayerIntent.Play) },
+                    skin = skin,
+                    modifier = Modifier.weight(1f)
+                )
+                RetroButton(
+                    text = "PAUSE",
+                    icon = Icons.Filled.Pause,
+                    onClick = { onIntent(PlayerIntent.Pause) },
+                    skin = skin,
+                    modifier = Modifier.weight(1f)
+                )
+                RetroButton(
+                    text = "STOP",
+                    icon = Icons.Filled.Stop,
+                    onClick = { onIntent(PlayerIntent.Stop) },
+                    skin = skin,
+                    modifier = Modifier.weight(1f)
+                )
+                RetroButton(
+                    text = "NEXT",
+                    icon = Icons.Filled.SkipNext,
+                    onClick = { onIntent(PlayerIntent.SkipNext) },
+                    skin = skin,
+                    modifier = Modifier.weight(1f)
+                )
+                RetroButton(
+                    text = "ADD",
+                    icon = Icons.Filled.Add,
+                    onClick = onAddClick,
+                    skin = skin,
+                    modifier = Modifier.weight(1f)
+                )
+                RetroButton(
+                    text = "SKIN",
+                    icon = Icons.Filled.Palette,
+                    onClick = {
+                        val nextSkin = if (skin == AppSkin.Winamp) AppSkin.EightBit else AppSkin.Winamp
+                        onIntent(PlayerIntent.SwitchSkin(nextSkin))
+                    },
+                    skin = skin,
+                    modifier = Modifier.weight(1.2f)
+                )
             }
             
             // Volume
@@ -273,10 +332,10 @@ fun PlayerContent(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "VOL",
-                    color = MaterialTheme.colorScheme.onSurface,
+                    text = if (skin.forceAllCaps) "VOL" else "Vol",
+                    color = skin.textColor,
                     fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = skin.fontFamily,
                     modifier = Modifier.padding(end = 8.dp)
                 )
                 RetroSlider(
@@ -284,6 +343,7 @@ fun PlayerContent(
                     onValueChange = { newValue ->
                         onIntent(PlayerIntent.SetVolume(newValue))
                     },
+                    skin = skin,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -293,15 +353,16 @@ fun PlayerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .background(Color.Black)
-                    .border(1.dp, MaterialTheme.colorScheme.onSurface)
+                    .background(skin.backgroundColor)
+                    .border(1.dp, skin.textColor)
             ) {
                 LazyColumn {
                     items(uiState.playlist, key = { it.id }) { track ->
                         TrackItem(
                             track = track,
                             isSelected = track.id == uiState.currentTrack?.id,
-                            onClick = { onIntent(PlayerIntent.SelectTrack(track.id)) }
+                            onClick = { onIntent(PlayerIntent.SelectTrack(track.id)) },
+                            skin = skin
                         )
                     }
                 }
@@ -313,11 +374,12 @@ fun PlayerContent(
                 mode = uiState.visualizerMode,
                 onToggleMode = { onIntent(PlayerIntent.ToggleVisualizer) },
                 onToggleFullScreen = { onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
+                skin = skin,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(80.dp)
-                    .background(Color.Black)
-                    .border(1.dp, MaterialTheme.colorScheme.onSurface)
+                    .background(skin.backgroundColor)
+                    .border(1.dp, skin.textColor)
             )
         }
     }
@@ -326,6 +388,7 @@ fun PlayerContent(
 @Composable
 private fun PlaybackTimeDisplay(
     positionProvider: () -> Long,
+    skin: AppSkin,
     modifier: Modifier = Modifier
 ) {
     val position = positionProvider()
@@ -336,6 +399,7 @@ private fun PlaybackTimeDisplay(
     SegmentedDisplay(
         text = timeText,
         label = "TIME",
+        skin = skin,
         modifier = modifier
     )
 }
@@ -345,6 +409,7 @@ private fun PlaybackProgressSlider(
     positionProvider: () -> Long,
     durationMs: Long,
     onSeek: (Long) -> Unit,
+    skin: AppSkin,
     modifier: Modifier = Modifier
 ) {
     val position = positionProvider()
@@ -355,6 +420,7 @@ private fun PlaybackProgressSlider(
         onValueChange = { newValue ->
             onSeek((newValue * durationMs).toLong())
         },
+        skin = skin,
         modifier = modifier
     )
 }
@@ -373,7 +439,8 @@ fun PlayerPreview() {
                     audioUrl = "https://example.com/audio.mp3".toUri(),
                     coverArtUrl = "https://picsum.photos/seed/winamp/200".toUri()
                 ),
-                isPlaying = true
+                isPlaying = true,
+                currentSkin = AppSkin.EightBit
             ),
             amplitudeProvider = { 0.5f },
             positionProvider = { 2500L },

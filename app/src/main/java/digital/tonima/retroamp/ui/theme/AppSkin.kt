@@ -39,9 +39,16 @@ sealed class AppSkin(
         surfaceColor = Color(0xFF333333),
         textColor = Color.White,
         accentColor = Color(0xFFF8B800), // NES Gold/Yellow
-        buttonShape = RectangleShape,
-        fontFamily = FontFamily.Monospace,
+        buttonShape = PixelNotchShape(notchSizeDp = 4f),
+        fontFamily = PixelFontFamily,
         visualizerColors = listOf(Color.Red, Color.Yellow, Color.White),
         forceAllCaps = true
     )
+
+    companion object {
+        fun fromName(name: String): AppSkin = when (name) {
+            EightBit.name -> EightBit
+            else -> Winamp
+        }
+    }
 }

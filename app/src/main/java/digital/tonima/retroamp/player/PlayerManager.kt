@@ -41,11 +41,28 @@ class PlayerManager(val context: Context) {
     private var visualizer: Visualizer? = null
 
     init {
+        connect()
+    }
+
+    private fun connect() {
         val sessionToken = SessionToken(context, ComponentName(context, PlaybackService::class.java))
-        controllerFuture = MediaController.Builder(context, sessionToken).buildAsync()
-        controllerFuture?.addListener({
+        val future = MediaController.Builder(context, sessionToken)
+            .setListener(object : MediaController.Listener {
+                override fun onDisconnected(controller: MediaController) {
+                    // The session went away from under us - e.g. PlaybackService
+                    // stopped itself (onTaskRemoved) while paused. Drop the dead
+                    // reference and reconnect so playback/observation commands
+                    // resume working instead of silently talking to a corpse.
+                    this@PlayerManager.controller = null
+                    _isReady.value = false
+                    connect()
+                }
+            })
+            .buildAsync()
+        controllerFuture = future
+        future.addListener({
             try {
-                controller = controllerFuture?.get()
+                controller = future.get()
                 setupController()
                 _isReady.value = true
             } catch (e: Exception) {
@@ -290,6 +307,15 @@ class PlayerManager(val context: Context) {
 
     fun getCurrentTrackIndex(): Int = controller?.currentMediaItemIndex ?: -1
 
+    // Intentionally NOT called from PlayerViewModel.onCleared(): this class is
+    // an app-wide @Singleton, but its owning ViewModel can be destroyed (and
+    // recreated) independently of actual playback ending - e.g. "Don't keep
+    // activities", the OEM reclaiming memory, or simply backgrounding the app
+    // on some devices. Releasing the controller here would leave this
+    // singleton permanently disconnected for the rest of the process's life,
+    // which is exactly what caused the UI to desync from real playback state
+    // after minimizing and reopening the app. Nothing currently calls this;
+    // it's kept for a future explicit "quit app" action if one is added.
     fun release() {
         stopVisualizer()
         controllerFuture?.let {

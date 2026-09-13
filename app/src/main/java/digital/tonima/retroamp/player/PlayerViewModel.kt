@@ -6,8 +6,10 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import digital.tonima.retroamp.core.datastore.UserPreferencesRepository
 import digital.tonima.retroamp.core.model.Track
 import digital.tonima.retroamp.core.repository.PlaylistRepository
+import digital.tonima.retroamp.ui.theme.AppSkin
 import javax.inject.Inject
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
@@ -25,7 +27,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     private val playerManager: PlayerManager,
-    private val playlistRepository: PlaylistRepository
+    private val playlistRepository: PlaylistRepository,
+    private val userPreferencesRepository: UserPreferencesRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -116,6 +119,19 @@ class PlayerViewModel @Inject constructor(
                 delay(500.milliseconds)
             }
         }
+
+        viewModelScope.launch {
+            userPreferencesRepository.userPreferences.collect { prefs ->
+                _uiState.update {
+                    it.copy(
+                        visualizerEnabled = prefs.visualizerEnabled,
+                        visualizerBatterySaver = prefs.visualizerBatterySaver,
+                        keepScreenOnWhilePlaying = prefs.keepScreenOnWhilePlaying,
+                        currentSkin = AppSkin.fromName(prefs.skinName)
+                    )
+                }
+            }
+        }
     }
 
     fun onIntent(intent: PlayerIntent) {
@@ -157,6 +173,19 @@ class PlayerViewModel @Inject constructor(
             PlayerIntent.RefreshVisualizer -> playerManager.refreshVisualizer()
             is PlayerIntent.SwitchSkin -> {
                 _uiState.update { it.copy(currentSkin = intent.skin) }
+                viewModelScope.launch { userPreferencesRepository.setSkinName(intent.skin.name) }
+            }
+            is PlayerIntent.SetVisualizerEnabled -> {
+                _uiState.update { it.copy(visualizerEnabled = intent.enabled) }
+                viewModelScope.launch { userPreferencesRepository.setVisualizerEnabled(intent.enabled) }
+            }
+            is PlayerIntent.SetVisualizerBatterySaver -> {
+                _uiState.update { it.copy(visualizerBatterySaver = intent.enabled) }
+                viewModelScope.launch { userPreferencesRepository.setVisualizerBatterySaver(intent.enabled) }
+            }
+            is PlayerIntent.SetKeepScreenOnWhilePlaying -> {
+                _uiState.update { it.copy(keepScreenOnWhilePlaying = intent.enabled) }
+                viewModelScope.launch { userPreferencesRepository.setKeepScreenOnWhilePlaying(intent.enabled) }
             }
         }
     }
@@ -289,7 +318,12 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    override fun onCleared() {
-        playerManager.release()
-    }
+    // Deliberately does not call playerManager.release(): PlayerManager is an
+    // app-wide singleton whose MediaController connection must outlive any
+    // single ViewModel instance. This ViewModel can be destroyed (and a new
+    // one created on the next hiltViewModel() call) without playback ever
+    // stopping - e.g. "Don't keep activities", low memory, or just minimizing
+    // the app on some OEM skins. Releasing here previously left the singleton
+    // permanently disconnected, which is what desynced the UI from the real
+    // playback state after returning to the app. See PlayerManager.release().
 }

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -25,14 +26,18 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,7 +75,8 @@ import kotlin.time.Duration.Companion.milliseconds
 @Composable
 fun PlayerScreen(
     viewModel: PlayerViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenSettings: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val amplitudeState = viewModel.amplitude.collectAsState()
@@ -77,9 +84,18 @@ fun PlayerScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val effectFlow = remember(viewModel) { viewModel.uiState.map { it.effect } }
-    
+
     val context = LocalContext.current
-    
+
+    // Usability/battery: only keep the screen on while actually playing, and
+    // only when the user opted in via Settings. Reset on dispose so we never
+    // leak the flag if the screen is left mid-playback.
+    val view = LocalView.current
+    DisposableEffect(uiState.keepScreenOnWhilePlaying, uiState.isPlaying) {
+        view.keepScreenOn = uiState.keepScreenOnWhilePlaying && uiState.isPlaying
+        onDispose { view.keepScreenOn = false }
+    }
+
     val visualizerPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -150,13 +166,15 @@ fun PlayerScreen(
                 permissionLauncher.launch(permission)
             }
         },
+        onOpenSettings = onOpenSettings,
         snackbarHostState = snackbarHostState,
         modifier = modifier
     )
 
-    // Full Screen Visualizer Overlay
+    // Full Screen Visualizer Overlay. Only relevant while the visualizer is
+    // enabled - the mini visualizer that triggers it is hidden otherwise.
     AnimatedVisibility(
-        visible = uiState.isVisualizerFullScreen,
+        visible = uiState.isVisualizerFullScreen && uiState.visualizerEnabled,
         enter = fadeIn(),
         exit = fadeOut()
     ) {
@@ -166,6 +184,8 @@ fun PlayerScreen(
             onToggleMode = { viewModel.onIntent(PlayerIntent.ToggleVisualizer) },
             onToggleFullScreen = { viewModel.onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
             skin = uiState.currentSkin,
+            isAnimating = uiState.isPlaying,
+            batterySaverMode = uiState.visualizerBatterySaver,
             modifier = Modifier.fillMaxSize().background(uiState.currentSkin.backgroundColor)
         )
     }
@@ -179,10 +199,12 @@ fun PlayerContent(
     onIntent: (PlayerIntent) -> Unit,
     onAddClick: () -> Unit,
     snackbarHostState: SnackbarHostState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenSettings: () -> Unit = {}
 ) {
     val skin = uiState.currentSkin
-    
+    val isEightBit = skin == AppSkin.EightBit
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier.fillMaxSize(),
@@ -207,10 +229,24 @@ fun PlayerContent(
                 Text(
                     text = if (skin.forceAllCaps) " RETRO-AMP - ${skin.name}.MP3" else " RETRO-AMP - ${skin.name}.mp3",
                     color = Color.White,
-                    fontSize = 12.sp,
+                    fontSize = if (isEightBit) 8.sp else 12.sp,
                     fontFamily = skin.fontFamily,
+                    maxLines = 1,
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = if (skin.forceAllCaps) "SETTINGS" else "Settings",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
             // Main Display Area
@@ -246,15 +282,16 @@ fun PlayerContent(
                     Text(
                         text = trackText,
                         color = skin.accentColor,
-                        fontSize = 14.sp,
+                        fontSize = if (isEightBit) 10.sp else 14.sp,
                         fontFamily = skin.fontFamily,
                         maxLines = 1
                     )
                     Text(
                         text = if (skin.forceAllCaps) "KBPS: 128  KHZ: 44.1" else "kbps: 128  khz: 44.1",
                         color = skin.accentColor.copy(alpha = 0.7f),
-                        fontSize = 10.sp,
-                        fontFamily = skin.fontFamily
+                        fontSize = if (isEightBit) 7.sp else 10.sp,
+                        fontFamily = skin.fontFamily,
+                        maxLines = 1
                     )
                 }
             }
@@ -334,7 +371,7 @@ fun PlayerContent(
                 Text(
                     text = if (skin.forceAllCaps) "VOL" else "Vol",
                     color = skin.textColor,
-                    fontSize = 12.sp,
+                    fontSize = if (isEightBit) 9.sp else 12.sp,
                     fontFamily = skin.fontFamily,
                     modifier = Modifier.padding(end = 8.dp)
                 )
@@ -353,8 +390,8 @@ fun PlayerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .background(skin.backgroundColor)
-                    .border(1.dp, skin.textColor)
+                    .background(skin.backgroundColor, skin.buttonShape)
+                    .border(1.dp, skin.textColor, skin.buttonShape)
             ) {
                 LazyColumn {
                     items(uiState.playlist, key = { it.id }) { track ->
@@ -368,19 +405,36 @@ fun PlayerContent(
                 }
             }
             
-            // Visualizer
-            RetroVisualizer(
-                amplitudeProvider = amplitudeProvider,
-                mode = uiState.visualizerMode,
-                onToggleMode = { onIntent(PlayerIntent.ToggleVisualizer) },
-                onToggleFullScreen = { onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
-                skin = skin,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(80.dp)
-                    .background(skin.backgroundColor)
-                    .border(1.dp, skin.textColor)
-            )
+            // Visualizer. Hidden (rather than merely covered) while the full
+            // screen overlay is showing the same content, so we never pay to
+            // render/animate the same shader twice at once; and hidden when
+            // the user disabled it from Settings to save battery entirely.
+            val visualizerModifier = Modifier
+                .fillMaxWidth()
+                .height(80.dp)
+                .background(skin.backgroundColor, skin.buttonShape)
+                .border(1.dp, skin.textColor, skin.buttonShape)
+            when {
+                uiState.isVisualizerFullScreen -> Box(modifier = visualizerModifier)
+                uiState.visualizerEnabled -> RetroVisualizer(
+                    amplitudeProvider = amplitudeProvider,
+                    mode = uiState.visualizerMode,
+                    onToggleMode = { onIntent(PlayerIntent.ToggleVisualizer) },
+                    onToggleFullScreen = { onIntent(PlayerIntent.ToggleVisualizerFullScreen) },
+                    skin = skin,
+                    isAnimating = uiState.isPlaying,
+                    batterySaverMode = uiState.visualizerBatterySaver,
+                    modifier = visualizerModifier
+                )
+                else -> Box(modifier = visualizerModifier, contentAlignment = Alignment.Center) {
+                    Text(
+                        text = if (skin.forceAllCaps) "VISUALIZER OFF" else "Visualizer off",
+                        color = skin.textColor.copy(alpha = 0.6f),
+                        fontSize = if (isEightBit) 9.sp else 12.sp,
+                        fontFamily = skin.fontFamily
+                    )
+                }
+            }
         }
     }
 }

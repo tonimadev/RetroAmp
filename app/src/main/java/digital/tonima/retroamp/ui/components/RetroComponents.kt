@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,8 +51,9 @@ fun RetroButton(
             ) // Blocky shadow for 8-bit
             .padding(bottom = if (isEightBit) 2.dp else 0.dp, end = if (isEightBit) 2.dp else 0.dp)
             .size(width = 60.dp, height = 30.dp)
+            .clip(skin.buttonShape)
             .border(if (isEightBit) 3.dp else 2.dp, skin.textColor, skin.buttonShape)
-            .background(if (enabled) skin.primaryColor else Color.Gray)
+            .background(if (enabled) skin.primaryColor else Color.Gray, skin.buttonShape)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(2.dp),
         contentAlignment = Alignment.Center
@@ -82,13 +84,14 @@ fun SegmentedDisplay(
     label: String? = null,
     skin: AppSkin = AppSkin.Winamp
 ) {
+    val isEightBit = skin == AppSkin.EightBit
     val displayText = if (skin.forceAllCaps) text.uppercase() else text
     val displayLabel = if (skin.forceAllCaps) label?.uppercase() else label
-    
+
     Box(
         modifier = modifier
-            .background(Color.Black)
-            .border(1.dp, skin.textColor)
+            .background(Color.Black, skin.buttonShape)
+            .border(1.dp, skin.textColor, skin.buttonShape)
             .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Row(verticalAlignment = Alignment.Bottom) {
@@ -96,7 +99,7 @@ fun SegmentedDisplay(
                 Text(
                     text = displayLabel,
                     color = skin.accentColor.copy(alpha = 0.7f),
-                    fontSize = 10.sp,
+                    fontSize = if (isEightBit) 7.sp else 10.sp,
                     fontFamily = skin.fontFamily,
                     modifier = Modifier.padding(end = 4.dp)
                 )
@@ -104,7 +107,7 @@ fun SegmentedDisplay(
             Text(
                 text = displayText,
                 color = skin.accentColor,
-                fontSize = 20.sp,
+                fontSize = if (isEightBit) 14.sp else 20.sp,
                 fontFamily = skin.fontFamily,
                 fontWeight = FontWeight.Bold
             )
@@ -139,8 +142,9 @@ fun TrackItem(
     modifier: Modifier = Modifier,
     skin: AppSkin = AppSkin.Winamp
 ) {
+    val isEightBit = skin == AppSkin.EightBit
     val titleText = if (skin.forceAllCaps) "${track.title} - ${track.artist}".uppercase() else "${track.title} - ${track.artist}"
-    
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -165,7 +169,7 @@ fun TrackItem(
         Text(
             text = titleText,
             color = if (isSelected) skin.accentColor else skin.textColor,
-            fontSize = 12.sp,
+            fontSize = if (isEightBit) 9.sp else 12.sp,
             fontFamily = skin.fontFamily,
             maxLines = 1,
             modifier = Modifier.weight(1f)
@@ -176,7 +180,7 @@ fun TrackItem(
         Text(
             text = formatDuration(track.durationMs),
             color = if (isSelected) skin.accentColor else skin.textColor,
-            fontSize = 12.sp,
+            fontSize = if (isEightBit) 9.sp else 12.sp,
             fontFamily = skin.fontFamily,
         )
     }

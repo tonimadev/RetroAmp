@@ -15,7 +15,10 @@ data class PlayerUiState(
     val effect: PlayerEffect? = null,
     val visualizerMode: Int = 0,
     val isVisualizerFullScreen: Boolean = false,
-    val currentSkin: AppSkin = AppSkin.Winamp
+    val currentSkin: AppSkin = AppSkin.Winamp,
+    val visualizerEnabled: Boolean = true,
+    val visualizerBatterySaver: Boolean = false,
+    val keepScreenOnWhilePlaying: Boolean = false
 )
 
 @Immutable

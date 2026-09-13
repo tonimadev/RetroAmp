@@ -14,6 +14,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -33,12 +34,17 @@ fun RetroVisualizer(
     onToggleMode: () -> Unit,
     onToggleFullScreen: () -> Unit,
     modifier: Modifier = Modifier,
-    skin: AppSkin = AppSkin.Winamp
+    skin: AppSkin = AppSkin.Winamp,
+    isAnimating: Boolean = true,
+    batterySaverMode: Boolean = false
 ) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        AgslVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier, skin)
+    // Battery saver forces the cheap bar renderer even on devices that support
+    // the AGSL shader path, since the per-pixel shader is by far the heaviest
+    // part of the visualizer.
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !batterySaverMode) {
+        AgslVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier, skin, isAnimating)
     } else {
-        FallbackVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier, skin)
+        FallbackVisualizer(amplitudeProvider, mode, onToggleMode, onToggleFullScreen, modifier, skin, isAnimating)
     }
 }
 
@@ -51,17 +57,30 @@ private fun AgslVisualizer(
     onToggleMode: () -> Unit,
     onToggleFullScreen: () -> Unit,
     modifier: Modifier = Modifier,
-    skin: AppSkin = AppSkin.Winamp
+    skin: AppSkin = AppSkin.Winamp,
+    isAnimating: Boolean = true
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "visualizerTime")
-    val timeState = infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 100f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(20000, easing = LinearEasing)
-        ),
-        label = "time"
-    )
+    // While paused/stopped there is nothing new to visualize: not subscribing
+    // to the infinite animation at all (instead of merely ignoring its value)
+    // stops Compose from re-evaluating and redrawing the shader every frame,
+    // which is where most of the visualizer's battery/GPU cost comes from.
+    val frozenTime = remember { mutableFloatStateOf(0f) }
+    val timeValue: Float
+    if (isAnimating) {
+        val infiniteTransition = rememberInfiniteTransition(label = "visualizerTime")
+        val animatedTime by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 100f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(20000, easing = LinearEasing)
+            ),
+            label = "time"
+        )
+        frozenTime.floatValue = animatedTime
+        timeValue = animatedTime
+    } else {
+        timeValue = frozenTime.floatValue
+    }
 
     val shaderString = when (mode) {
         0 -> Shaders.PSYCHEDELIC_SHADER
@@ -84,7 +103,7 @@ private fun AgslVisualizer(
                 val color3 = skin.visualizerColors.getOrElse(2) { color2 }
                 
                 onDrawBehind {
-                    shader.setFloatUniform("uTime", timeState.value)
+                    shader.setFloatUniform("uTime", timeValue)
                     shader.setFloatUniform("uAmplitude", amplitudeProvider())
                     shader.setFloatUniform("uResolution", size.width, size.height)
                     
@@ -108,17 +127,28 @@ private fun FallbackVisualizer(
     onToggleMode: () -> Unit,
     onToggleFullScreen: () -> Unit,
     modifier: Modifier = Modifier,
-    skin: AppSkin = AppSkin.Winamp
+    skin: AppSkin = AppSkin.Winamp,
+    isAnimating: Boolean = true
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "visualizerTime")
-    val time by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing)
-        ),
-        label = "time"
-    )
+    // Same reasoning as AgslVisualizer: don't subscribe to the infinite
+    // animation while paused/stopped so the canvas stops redrawing.
+    val frozenTime = remember { mutableFloatStateOf(0f) }
+    val time: Float
+    if (isAnimating) {
+        val infiniteTransition = rememberInfiniteTransition(label = "visualizerTime")
+        val animatedTime by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = LinearEasing)
+            ),
+            label = "time"
+        )
+        frozenTime.floatValue = animatedTime
+        time = animatedTime
+    } else {
+        time = frozenTime.floatValue
+    }
 
     // Simple bar visualizer for older APIs
     Canvas(

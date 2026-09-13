@@ -21,4 +21,7 @@ sealed interface PlayerIntent {
     data object ConsumeEffect : PlayerIntent
     data object RefreshVisualizer : PlayerIntent
     data class SwitchSkin(val skin: AppSkin) : PlayerIntent
+    data class SetVisualizerEnabled(val enabled: Boolean) : PlayerIntent
+    data class SetVisualizerBatterySaver(val enabled: Boolean) : PlayerIntent
+    data class SetKeepScreenOnWhilePlaying(val enabled: Boolean) : PlayerIntent
 }

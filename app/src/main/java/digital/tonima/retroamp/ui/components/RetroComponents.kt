@@ -11,7 +11,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -139,6 +142,7 @@ fun TrackItem(
     track: Track,
     isSelected: Boolean,
     onClick: () -> Unit,
+    onRemove: () -> Unit,
     modifier: Modifier = Modifier,
     skin: AppSkin = AppSkin.Winamp
 ) {
@@ -183,6 +187,18 @@ fun TrackItem(
             fontSize = if (isEightBit) 9.sp else 12.sp,
             fontFamily = skin.fontFamily,
         )
+
+        IconButton(
+            onClick = onRemove,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = if (skin.forceAllCaps) "REMOVE" else "Remove from playlist",
+                tint = if (isSelected) skin.accentColor else skin.textColor,
+                modifier = Modifier.size(16.dp)
+            )
+        }
     }
 }
 

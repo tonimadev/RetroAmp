@@ -399,6 +399,7 @@ fun PlayerContent(
                             track = track,
                             isSelected = track.id == uiState.currentTrack?.id,
                             onClick = { onIntent(PlayerIntent.SelectTrack(track.id)) },
+                            onRemove = { onIntent(PlayerIntent.RemoveTrack(track.id)) },
                             skin = skin
                         )
                     }

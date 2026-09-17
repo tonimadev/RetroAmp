@@ -61,7 +61,7 @@ class PlayerViewModel @Inject constructor(
 
                             if (savedPlaylist.isNotEmpty()) {
                                 _uiState.update { state ->
-                                    val currentIndex = playerManager.getCurrentTrackIndex()
+                                    val currentIndex = playerManager.getCurrentTrackIndexSnapshot()
                                     state.copy(
                                         playlist = savedPlaylist.toImmutableList(),
                                         currentTrack = if (currentIndex in savedPlaylist.indices) {
@@ -193,19 +193,14 @@ class PlayerViewModel @Inject constructor(
     private fun handleRemoveTrack(trackId: String) {
         viewModelScope.launch {
             playlistMutex.withLock {
-                val currentPlaylist = _uiState.value.playlist
-                val index = currentPlaylist.indexOfFirst { it.id == trackId }
-                if (index != -1) {
-                    val newList = currentPlaylist.toMutableList().apply { removeAt(index) }.toImmutableList()
-                    _uiState.update { state ->
-                        state.copy(
-                            playlist = newList,
-                            currentTrack = if (state.currentTrack?.id == trackId) {
-                                if (newList.isNotEmpty()) newList[index.coerceAtMost(newList.size - 1)] else null
-                            } else state.currentTrack
-                        )
+                val state = _uiState.value
+                val result = removeTrackFromPlaylist(state.playlist, state.currentTrack, trackId)
+                if (result != null) {
+                    val newList = result.newPlaylist.toImmutableList()
+                    _uiState.update {
+                        it.copy(playlist = newList, currentTrack = result.newCurrentTrack)
                     }
-                    playerManager.removeTrack(index)
+                    playerManager.removeTrack(result.removedIndex)
                     playlistRepository.clearPlaylist()
                     playlistRepository.saveTracks(newList)
                 }
@@ -225,7 +220,14 @@ class PlayerViewModel @Inject constructor(
 
     private fun handleAddTracks(uris: List<Uri>) {
         viewModelScope.launch {
-            val incomingTracks = uris.map { uri ->
+            // Dedupe the raw URIs *before* extracting metadata: a track's id is
+            // derived from its URI, so extracting metadata for the same URI
+            // twice would only waste work - it can never itself produce the
+            // "already in playlist" duplicates we need to detect below.
+            val distinctUris = uris.distinctBy { it.toString() }
+            val hadDuplicateSelection = distinctUris.size < uris.size
+
+            val incomingTracks = distinctUris.map { uri ->
                 // Try to persist permission for the URI
                 try {
                     playerManager.context.contentResolver.takePersistableUriPermission(
@@ -236,7 +238,7 @@ class PlayerViewModel @Inject constructor(
                     // Not a persistable URI or permission already granted
                 }
                 extractMetadata(uri)
-            }.distinctBy { it.id } // Ensure incoming tracks are unique by ID
+            }
 
             if (incomingTracks.isEmpty()) {
                 _uiState.update { it.copy(effect = PlayerEffect.ShowMessage("No valid audio files found")) }
@@ -244,24 +246,20 @@ class PlayerViewModel @Inject constructor(
             }
 
             playlistMutex.withLock {
-                val currentPlaylist = _uiState.value.playlist
-                val currentIds = currentPlaylist.map { it.id }.toSet()
+                val result = mergeIncomingTracks(_uiState.value.playlist, incomingTracks, hadDuplicateSelection)
 
-                val newTracksToAdd = incomingTracks.filter { it.id !in currentIds }.distinctBy { it.id }
-                val hadDuplicates = incomingTracks.size < uris.distinctBy { it.toString() }.size || incomingTracks.size > newTracksToAdd.size
-
-                if (newTracksToAdd.isNotEmpty()) {
-                    val updatedPlaylist = (currentPlaylist + newTracksToAdd).distinctBy { it.id }.toImmutableList()
+                if (result.newTracksToAdd.isNotEmpty()) {
+                    val updatedPlaylist = result.updatedPlaylist.toImmutableList()
                     _uiState.update { state ->
                         state.copy(
                             playlist = updatedPlaylist,
-                            currentTrack = state.currentTrack ?: newTracksToAdd.firstOrNull(),
-                            effect = if (hadDuplicates) PlayerEffect.ShowMessage("Some tracks are already in the playlist") else state.effect
+                            currentTrack = state.currentTrack ?: result.newTracksToAdd.firstOrNull(),
+                            effect = if (result.hadDuplicates) PlayerEffect.ShowMessage("Some tracks are already in the playlist") else state.effect
                         )
                     }
-                    playerManager.addTracks(newTracksToAdd)
+                    playerManager.addTracks(result.newTracksToAdd)
                     playlistRepository.saveTracks(updatedPlaylist)
-                } else if (hadDuplicates) {
+                } else if (result.hadDuplicates) {
                     _uiState.update { it.copy(effect = PlayerEffect.ShowMessage("Some tracks are already in the playlist")) }
                 }
             }

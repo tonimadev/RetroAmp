@@ -305,7 +305,13 @@ class PlayerManager(val context: Context) {
 
     fun getMediaItemCount(): Int = controller?.mediaItemCount ?: 0
 
-    fun getCurrentTrackIndex(): Int = controller?.currentMediaItemIndex ?: -1
+    // Named distinctly from the `currentTrackIndex` StateFlow property above:
+    // Kotlin compiles that property's getter to the JVM method
+    // `getCurrentTrackIndex()`, so a same-named function here would silently
+    // clash with it at the bytecode level (legal, since return types differ,
+    // but it confuses reflection-based tooling - e.g. MockK - and any Java
+    // caller).
+    fun getCurrentTrackIndexSnapshot(): Int = controller?.currentMediaItemIndex ?: -1
 
     // Intentionally NOT called from PlayerViewModel.onCleared(): this class is
     // an app-wide @Singleton, but its owning ViewModel can be destroyed (and
